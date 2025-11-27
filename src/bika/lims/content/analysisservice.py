@@ -77,6 +77,20 @@ Instruments = UIDReferenceField(
     )
 )
 
+SubInstrumentsAllowed = UIDReferenceField(
+    "SubInstrumentsAllowed",
+    schemata="Method",
+    required=0,
+    multiValued=1,
+    vocabulary="_sub_instruments_vocabulary",
+    allowed_types=("Instrument", ),
+    accessor="getRawSubInstrumentsAllowed",
+    widget=PicklistWidget(
+        label=_("SubInstruments Allowed"),
+        description=_("Available sub-instruments allowed based on the selected methods."),
+    )
+)
+
 # XXX: HIDDEN -> TO BE REMOVED
 UseDefaultCalculation = BooleanField(
     "UseDefaultCalculation",
@@ -279,6 +293,7 @@ Conditions = RecordsField(
 schema = schema.copy() + Schema((
     Methods,
     Instruments,
+    SubInstrumentsAllowed,
     UseDefaultCalculation,
     Calculation,
     InterimFields,
@@ -296,6 +311,7 @@ schema.moveField("Method", after="Methods")
 schema.moveField("Instrument", after="Instruments")
 # Move default result field after Result Options
 schema.moveField("DefaultResult", after="ResultOptions")
+schema.moveField("SubInstruments", after="SubInstrumentsAllowed")
 
 
 class AnalysisService(AbstractBaseAnalysis):
@@ -390,6 +406,18 @@ class AnalysisService(AbstractBaseAnalysis):
         if instrument not in instruments:
             return None
         return instrument
+    
+    def getSubInstrumentsAllowed(self):
+        """Returns the assigned allowed Subinstruments
+
+        :returns: List of sub instrument objects
+        """
+        return self.getField("SubInstrumentsAllowed").get(self)
+    
+    def getRawSubInstrumentsAllowed(self):
+        """List of assigned allowed sub Instrument UIDs
+        """
+        return self.getField("SubInstrumentsAllowed").getRaw(self)
 
     def getCalculation(self):
         """Get the default calculation
@@ -525,6 +553,37 @@ class AnalysisService(AbstractBaseAnalysis):
         dlist = DisplayList(items).sortedByValue()
         # allow to leave this field empty
         dlist.add("", _("None"))
+        return dlist
+    
+    def _sub_instruments_vocabulary(self):
+        """Vocabulary used for allowed sub instruments field
+        """
+        sub_instruments = []
+        instruments_asigned = self.getInstruments()
+        # When methods are selected, display only instruments from the methods
+        methods = self.getMethods()
+        for method in methods:
+            for instrument in method.getInstruments():
+                if instrument in sub_instruments or instrument in instruments_asigned:
+                    continue
+                sub_instruments.append(instrument)
+
+        if not methods:
+            # query all available instruments when no methods are selected
+            sub_instruments = self.query_available_instruments()
+
+        items = [(api.get_uid(i), api.get_title(i)) for i in sub_instruments]
+        dlist = DisplayList(items)
+        return dlist
+    
+    def _default_sub_instrument_vocabulary(self):
+        """Vocabulary used for default instrument field
+        """
+        # check if we selected instruments
+        instruments = self.getSubInstrumentsAllowed()
+        items = [(api.get_uid(i), api.get_title(i)) for i in instruments]
+        dlist = DisplayList(items).sortedByValue()
+        # allow to leave this field empty
         return dlist
 
     def query_available_calculations(self):
