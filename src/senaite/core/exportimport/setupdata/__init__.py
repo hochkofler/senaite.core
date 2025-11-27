@@ -799,7 +799,7 @@ class Instrument_Types(WorksheetImporter):
             if not title:
                 continue
             api.create(container, "InstrumentType",
-                       title=title, description=row.get("description"))
+                       title=safe_unicode(title), description=row.get("description"))
 
 
 class Instruments(WorksheetImporter):
@@ -1292,7 +1292,7 @@ class Sample_Conditions(WorksheetImporter):
 
             description = row.get("description")
             api.create(container, "SampleCondition",
-                       title=title,
+                       title= safe_unicode(title),
                        description=description)
 
 
