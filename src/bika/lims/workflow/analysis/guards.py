@@ -120,6 +120,14 @@ def guard_submit(analysis):
         if not interim.get("value", ""):
             return False
 
+    for consumable in analysis.getConsumablesFields():
+        true_values = ("true", "1", "on", "True", True, 1)
+        if consumable.get("allow_empty", False) in true_values:
+            continue
+
+        if not consumable.get("value", ""):
+            return False
+
     # Cannot submit if attachment not set, but is required
     if not analysis.getAttachment():
         if analysis.getAttachmentRequired():
