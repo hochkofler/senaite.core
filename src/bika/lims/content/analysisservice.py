@@ -26,6 +26,7 @@ from bika.lims import bikaMessageFactory as _
 from bika.lims.browser.fields import InterimFieldsField
 from bika.lims.browser.fields import PartitionSetupField
 from bika.lims.browser.fields import UIDReferenceField
+from bika.lims.browser.fields import ConsumableFieldsField
 from bika.lims.browser.fields.partitionsetupfield import getContainers
 from bika.lims.browser.widgets.partitionsetupwidget import PartitionSetupWidget
 from bika.lims.browser.widgets.recordswidget import RecordsWidget
@@ -289,6 +290,14 @@ Conditions = RecordsField(
     )
 )
 
+ConsumablesFields = ConsumableFieldsField(
+    "ConsumablesFields",
+    schemata="Advanced",
+    widget=RecordsWidget(
+        label=_("Consumables setup"),
+        description=_("Consumables required to perform this analysis service."),
+    )
+)
 
 schema = schema.copy() + Schema((
     Methods,
@@ -303,6 +312,7 @@ schema = schema.copy() + Schema((
     PartitionSetup,
     DefaultResult,
     Conditions,
+    ConsumablesFields,
 ))
 
 # Move default method field after available methods field

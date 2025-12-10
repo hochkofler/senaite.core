@@ -33,6 +33,7 @@ from bika.lims.browser.fields import HistoryAwareReferenceField
 from bika.lims.browser.fields import InterimFieldsField
 from bika.lims.browser.fields import ResultRangeField
 from bika.lims.browser.fields import UIDReferenceField
+from bika.lims.browser.fields import ConsumableFieldsField
 from bika.lims.browser.fields.uidreferencefield import get_backreferences
 from bika.lims.browser.widgets import RecordsWidget
 from bika.lims.config import LDL
@@ -163,6 +164,16 @@ ResultsRange = ResultRangeField(
     required=0
 )
 
+ConsumablesFields = ConsumableFieldsField(
+    'ConsumablesFields',
+    read_permission=View,
+    write_permission=FieldEditAnalysisResult,
+    schemata='Method',
+    widget=RecordsWidget(
+        label=_("Consumable Fields"),
+    )
+)
+
 schema = schema.copy() + Schema((
     AnalysisService,
     Analyst,
@@ -177,6 +188,7 @@ schema = schema.copy() + Schema((
     Calculation,
     InterimFields,
     ResultsRange,
+    ConsumablesFields,
 ))
 
 
@@ -1216,6 +1228,26 @@ class AbstractAnalysis(AbstractBaseAnalysis):
             if interim.get("keyword") == keyword:
                 interim["value"] = str(value)
         self.setInterimFields(interims)
+        
+    def setConsumablesValue(self, keyword, value):
+        """Sets a value to an consumable of this analysis
+        :param keyword: the keyword of the consumable
+        :param value: the value for the consumable
+        """
+        # Ensure value format integrity
+        if value is None:
+            value = ""
+        elif isinstance(value, string_types):
+            value = value.strip()
+        elif isinstance(value, (list, tuple, set, dict)):
+            value = json.dumps(value)
+
+        # Ensure result integrity regards to None, empty and 0 values
+        consumables = copy.deepcopy(self.getConsumablesFields())
+        for consumable in consumables:
+            if consumable.get("keyword") == keyword:
+                consumable["value"] = str(value)
+        self.setConsumablesFields(consumables)
 
     def getInterimValue(self, keyword):
         """Returns the value of an interim of this analysis
@@ -1267,3 +1299,11 @@ class AbstractAnalysis(AbstractBaseAnalysis):
         if self.getRawRetest():
             return True
         return False
+    
+    @security.public
+    def getConsumablesFields(self):
+        """Returns the assigned consumables
+
+        :returns: list of consumables object
+        """
+        return self.getField("ConsumablesFields").get(self)
