@@ -56,6 +56,7 @@ from senaite.app.listing import ListingView
 from senaite.core.api import dtime
 from senaite.core.catalog import ANALYSIS_CATALOG
 from senaite.core.catalog import SETUP_CATALOG
+from senaite.core.catalog import SENAITE_CATALOG
 from senaite.core.i18n import translate as t
 from senaite.core.permissions import EditFieldResults
 from senaite.core.permissions import EditResults
@@ -112,6 +113,7 @@ class AnalysesView(ListingView):
         self.categories = []
         self.expand_all_categories = True
         self.now = datetime.now()
+        self.consumable_columns = OrderedDict()
 
         # each editable item needs it's own allow_edit
         # which is a list of field names.
@@ -300,6 +302,16 @@ class AnalysesView(ListingView):
         columns = review_state.get("columns", [])
         if "AdditionalValues" in columns:
             return columns.index("AdditionalValues")
+        if "Result" in columns:
+            return columns.index("Result")
+        return len(columns)
+    
+    def calculate_consumable_columns_position(self, review_state):
+        """Calculate at which position the consumable columns should be inserted
+        """
+        columns = review_state.get("columns", [])
+        if "Method" in columns:
+            return columns.index("Method")
         if "Result" in columns:
             return columns.index("Result")
         return len(columns)
@@ -628,6 +640,53 @@ class AnalysesView(ListingView):
 
         return vocab
 
+    def get_consumables_vocabulary(self, analysis, keyword):
+        """Returns a vocabulary with the valid and active consumables available
+        for the analysis passed in.
+
+        If the option "Allow consumables" for the Analysis service is not configured
+        , the function returns an empty vocabulary.
+
+        If the analysis passed in is a Reference Analysis (Blank or Control),
+        the vocabulary, the vocabulary will not include the actual reference definition
+
+        The vocabulary is a list of dictionaries. Each dictionary has the
+        following structure:
+
+            {'ResultValue': <reference_sample_UID>,
+             'ResultText': <reference_sample_Title>}
+
+        :param analysis: A single Analysis or ReferenceAnalysis
+        :type analysis_brain: Analysis or.ReferenceAnalysis
+        :return: A vocabulary with the consumables valid for the analysis
+        :rtype: A list of dicts: [{'ResultValue':UID, 'ResultText':Title}]
+        """
+        if not keyword:
+            return
+        
+        catalog = api.get_tool(SENAITE_CATALOG)
+        query = {
+            "portal_type": "ReferenceSample",
+            "getReferenceDefinitionUID": keyword,
+            "isValid": True,
+            "review_state": "current",
+            "is_active": True,
+            "sort_on": "sortable_title",
+            "sort_order": "ascending",
+        }
+        
+        catalog_result = catalog(query)
+        if not catalog_result:
+            # prepend empty item
+            return []
+        
+        items = [{"ResultValue":api.get_uid(i), "ResultText":api.get_title(i)} for i in catalog_result]
+        return items
+        
+        
+
+        return vocab
+
     def load_analysis_categories(self):
         # Getting analysis categories
         bsc = api.get_tool('senaite_catalog_setup')
@@ -802,7 +861,8 @@ class AnalysesView(ListingView):
         self._folder_item_conditions(obj, item)
         # Fill maximum holding time warnings
         self._folder_item_holding_time(obj, item)
-
+        # Fill consumables used
+        self._folder_item_consumables(obj, item)
         return item
 
     def folderitems(self):
@@ -877,6 +937,39 @@ class AnalysesView(ListingView):
         if "Unit" in self.columns:
             self.columns["Unit"]["toggle"] = show_unit_column
 
+        for item in items:
+            for field in self.consumable_columns:
+                if field not in item:
+                    item[field] = ""
+
+            # Graceful handling of new item key introduced in
+            # https://github.com/senaite/senaite.app.listing/pull/81
+            item["help"] = item.get("help", {})
+
+        # XXX order the list of interim columns
+        consumable_keys = self.consumable_columns.keys()
+        # add InterimFields keys to columns
+        for col_id in consumable_keys:
+            if col_id not in self.columns:
+                self.columns[col_id] = {
+                    "title": self.consumable_columns[col_id],
+                    "input_width": "6",
+                    #"input_class": "ajax_calculate numeric",
+                    "sortable": False,
+                    "toggle": True,
+                    "ajax": True,
+                }
+        if self.allow_edit:
+            new_states = []
+            for state in self.review_states:
+                pos = self.calculate_consumable_columns_position(state)
+                for col_id in consumable_keys:
+                    if col_id not in state["columns"]:
+                        state["columns"].insert(pos, col_id)
+                new_states.append(state)
+            self.review_states = new_states
+            # Allow selecting individual analyses
+            self.show_select_column = True
         return items
 
     def render_unit(self, unit, css_class=None):
@@ -1205,6 +1298,14 @@ class AnalysesView(ListingView):
         # return the values as a single string
         values = filter(None, values)
         return "<br/>".join(values)
+    
+    def get_formatted_consumable(self, consumable):
+        raw_value = consumable.get("value")
+        is_uid = api.is_uid(raw_value)
+        if not is_uid:
+            return raw_value
+        obj = api.get_object_by_uid(raw_value)
+        return api.get_title(obj) or raw_value
 
     def _folder_item_unit(self, analysis_brain, item):
         """Fills the analysis' unit to the item passed in.
@@ -1790,6 +1891,58 @@ class AnalysesView(ListingView):
             self._append_html_element(item, "ResultCaptureDate", icon)
             return
 
+    def _folder_item_consumables(self, analysis_brain, item):
+        analysis_obj = self.get_object(analysis_brain)
+        consumables_fields = self.get_consumables(analysis_brain) or list()
+        is_editable = self.is_analysis_edition_allowed(analysis_brain)
+        # Copy to prevent to avoid persistent changes
+        
+        consumables_fields = deepcopy(consumables_fields)
+        for consumable_field in consumables_fields:
+            consumable_keyword = consumable_field.get("keyword", "")
+            if not consumable_keyword:
+                logger.error("Not valid consumable keyword for '%s'", consumable_field)
+                continue
+            
+            consumable_brain = api.get_brain_by_uid(consumable_keyword)
+            if not consumable_brain:
+                logger.error("Not valid consumable brain for '%s'", consumable_keyword)
+                continue
+            consumable_title = api.get_title(consumable_brain)
+            
+            if not consumable_title:
+                logger.error("Not valid consumable title for '%s'", consumable_field)
+                continue
+            
+            self.consumable_columns[consumable_keyword] = consumable_title
+            consumable_value = consumable_field.get("value", "")
+            consumable_allow_empty = consumable_field.get("allow_empty") == "on"
+
+            # Get the consumable formatted value
+            consumable_formatted = self.get_formatted_consumable(consumable_field)
+            consumable_field["formatted_value"] = consumable_formatted
+
+            # Update the item with the consumable
+            item[consumable_keyword] = consumable_value
+
+            if is_editable:
+                if self.has_permission(
+                        FieldEditAnalysisResult, analysis_brain):
+                    item["allow_edit"].append(consumable_keyword)
+
+                voc = self.get_consumables_vocabulary(analysis_brain, consumable_keyword)
+                empty = [{"ResultValue": "", "ResultText": ""}]
+                voc = empty + voc
+                    
+                item.setdefault("choices", {})[consumable_keyword] = voc
+                item[consumable_keyword] = consumable_value
+            
+            elif consumable_value:
+                item[consumable_keyword] = consumable_formatted
+            
+            else:
+                item[consumable_keyword] = "-"
+        
     def is_method_required(self, analysis):
         """Returns whether the render of the selection list with methods is
         required for the method passed-in, even if only option "None" is
@@ -1869,3 +2022,12 @@ class AnalysesView(ListingView):
             if self.is_unit_choices_required(obj):
                 return True
         return False
+    
+    def get_consumables(self, analysis_brain):
+        """Returns the consumables assigned to the analysis passed in, if any
+
+        :param analysis_brain: Brain that represents an analysis
+        :return: consumables object or None
+        """
+        obj = self.get_object(analysis_brain)
+        return obj.getConsumablesFields()

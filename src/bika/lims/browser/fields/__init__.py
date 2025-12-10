@@ -30,3 +30,4 @@ from .referenceresultsfield import ReferenceResultsField
 from .resultrangefield import ResultRangeField
 from .resultsrangesfield import ResultsRangesField
 from .uidreferencefield import UIDReferenceField
+from .consumablefieldsfield import ConsumableFieldsField
