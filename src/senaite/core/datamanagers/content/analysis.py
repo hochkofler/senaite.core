@@ -84,9 +84,7 @@ class RoutineAnalysisDataManager(DataManager):
 
         # interims
         interims = self.context.getInterimFields()
-        consumables = self.context.getConsumablesFields()
         interim_keys = map(lambda i: i.get("keyword"), interims)
-        consumable_keys = map(lambda i: i.get("keyword"), consumables)
 
         # schema field found
         if field:
@@ -111,14 +109,6 @@ class RoutineAnalysisDataManager(DataManager):
                 logger.error("Interim field '{}' not writeable!".format(name))
                 return []
             self.context.setInterimValue(name, value)
-            
-        elif name in consumable_keys:
-            # Check the permission of the field
-            consumable_field = self.fields.get("ConsumablesFields")
-            if not self.is_field_writeable(consumable_field):
-                return []
-            self.context.setConsumablesValue(name, value)
-            updated_objects.add(self.context)
 
         # recalculate dependent results for result and interim fields
         if name in TRIGGER_RECALCULATE_FIELDS or name in interim_keys:

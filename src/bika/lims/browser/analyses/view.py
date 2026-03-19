@@ -57,7 +57,6 @@ from senaite.core.browser.listing.base import ListingView
 from senaite.core.api import dtime
 from senaite.core.catalog import ANALYSIS_CATALOG
 from senaite.core.catalog import SETUP_CATALOG
-from senaite.core.catalog import SENAITE_CATALOG
 from senaite.core.i18n import translate as t
 from senaite.core.permissions import EditFieldResults
 from senaite.core.permissions import EditResults
@@ -113,7 +112,6 @@ class AnalysesView(ListingView):
         self.categories = []
         self.expand_all_categories = True
         self.now = datetime.now()
-        self.consumable_columns = OrderedDict()
 
         # each editable item needs it's own allow_edit
         # which is a list of field names.
@@ -171,12 +169,6 @@ class AnalysesView(ListingView):
                 "ajax": True,
                 "sortable": False,
                 "toggle": True}),
-            ("SubInstruments", {
-                "title": _("SubInstruments"),
-                "ajax": True,
-                "sortable": False,
-                "toggle": True,
-                "type": "multiselect"}),
             ("Calculation", {
                 "title": _("Calculation"),
                 "sortable": False,
@@ -319,16 +311,6 @@ class AnalysesView(ListingView):
         columns = review_state.get("columns", [])
         if "AdditionalValues" in columns:
             return columns.index("AdditionalValues")
-        if "Result" in columns:
-            return columns.index("Result")
-        return len(columns)
-    
-    def calculate_consumable_columns_position(self, review_state):
-        """Calculate at which position the consumable columns should be inserted
-        """
-        columns = review_state.get("columns", [])
-        if "Method" in columns:
-            return columns.index("Method")
         if "Result" in columns:
             return columns.index("Result")
         return len(columns)
@@ -503,15 +485,6 @@ class AnalysesView(ListingView):
         """
         obj = self.get_object(analysis_brain)
         return obj.getInstrument()
-    
-    def get_sub_instruments(self, analysis_brain):
-        """Returns the sub instruments assigned to the analysis passed in, if any
-
-        :param analysis_brain: Brain that represents an analysis
-        :return: Sub Instrument object or None
-        """
-        obj = self.get_object(analysis_brain)
-        return obj.getSubInstruments()
 
     def get_calculation(self, analysis_brain):
         """Returns the calculation assigned to the analysis passed in, if any
@@ -665,128 +638,6 @@ class AnalysesView(ListingView):
         vocab = list(sorted(vocab, key=itemgetter("ResultText")))
         # prepend empty item
         vocab = [{"ResultValue": "", "ResultText": _("None")}] + vocab
-
-        return vocab
-    
-    def get_sub_instruments_vocabulary(self, analysis, method=None):
-        """Returns a vocabulary with the valid and active sub instruments available
-        for the analysis passed in.
-
-        If the option "Allow sub instrument entry of results" for the Analysis
-        is disabled, the function returns an empty vocabulary.
-
-        If the analysis passed in is a Reference Analysis (Blank or Control),
-        the vocabulary, the invalid instruments will be included in the
-        vocabulary too.
-
-        The vocabulary is a list of dictionaries. Each dictionary has the
-        following structure:
-
-            {'ResultValue': <instrument_UID>,
-             'ResultText': <instrument_Title>}
-
-        :param analysis: A single Analysis or ReferenceAnalysis
-        :type analysis_brain: Analysis or.ReferenceAnalysis
-        :return: A vocabulary with the sub instruments for the analysis
-        :rtype: A list of dicts: [{'ResultValue':UID, 'ResultText':Title}]
-        """
-        obj = self.get_object(analysis)
-        # get the allowed interfaces from the analysis service
-        subinstruments = obj.getAllowedSubInstruments()
-        # if no method is passed, get the assigned method of the analyis
-        if method is None:
-            method = obj.getMethod()
-
-        # check if the analysis has a method
-        if method:
-            # supported instrument from the method
-            method_instruments = method.getInstruments()
-            # allow only method instruments that are set in service
-            subinstruments = list(
-                set(subinstruments).intersection(method_instruments))
-
-        # If the analysis is a QC analysis, display all instruments, including
-        # those uncalibrated or for which the last QC test failed.
-        is_qc = api.get_portal_type(obj) == "ReferenceAnalysis"
-
-        vocab = []
-        for subinstrument in subinstruments:
-            uid = api.get_uid(subinstrument)
-            title = api.safe_unicode(api.get_title(subinstrument))
-            # append all valid instruments
-            if subinstrument.isValid():
-                vocab.append({
-                    "ResultValue": uid,
-                    "ResultText": title,
-                })
-            elif is_qc:
-                # Is a QC analysis, include instrument also if is not valid
-                if subinstrument.isOutOfDate():
-                    title = _(u"{} (Out of date)".format(title))
-                vocab.append({
-                    "ResultValue": uid,
-                    "ResultText": title,
-                })
-            elif subinstrument.isOutOfDate():
-                # disable out of date instruments
-                title = _(u"{} (Out of date)".format(title))
-                vocab.append({
-                    "disabled": True,
-                    "ResultValue": None,
-                    "ResultText": title,
-                })
-
-        # sort the vocabulary
-        vocab = list(sorted(vocab, key=itemgetter("ResultText")))
-        # prepend empty item
-        vocab = [{"ResultValue": "", "ResultText": _("None")}] + vocab
-
-        return vocab
-    
-    def get_consumables_vocabulary(self, analysis, keyword):
-        """Returns a vocabulary with the valid and active consumables available
-        for the analysis passed in.
-
-        If the option "Allow consumables" for the Analysis service is not configured
-        , the function returns an empty vocabulary.
-
-        If the analysis passed in is a Reference Analysis (Blank or Control),
-        the vocabulary, the vocabulary will not include the actual reference definition
-
-        The vocabulary is a list of dictionaries. Each dictionary has the
-        following structure:
-
-            {'ResultValue': <reference_sample_UID>,
-             'ResultText': <reference_sample_Title>}
-
-        :param analysis: A single Analysis or ReferenceAnalysis
-        :type analysis_brain: Analysis or.ReferenceAnalysis
-        :return: A vocabulary with the consumables valid for the analysis
-        :rtype: A list of dicts: [{'ResultValue':UID, 'ResultText':Title}]
-        """
-        if not keyword:
-            return
-        
-        catalog = api.get_tool(SENAITE_CATALOG)
-        query = {
-            "portal_type": "ReferenceSample",
-            "getReferenceDefinitionUID": keyword,
-            "isValid": True,
-            "review_state": "current",
-            "is_active": True,
-            "sort_on": "sortable_title",
-            "sort_order": "ascending",
-        }
-        
-        catalog_result = catalog(query)
-        if not catalog_result:
-            # prepend empty item
-            return []
-        
-        items = [{"ResultValue":api.get_uid(i), "ResultText":api.get_title(i)} for i in catalog_result]
-        return items
-        
-        
 
         return vocab
 
@@ -947,8 +798,6 @@ class AnalysesView(ListingView):
         self._folder_item_method(obj, item)
         # Fill instrument
         self._folder_item_instrument(obj, item)
-        # Fill subinstruments
-        self._folder_item_sub_instruments(obj, item)
         # Fill analyst
         self._folder_item_analyst(obj, item)
         # Fill submitted by
@@ -983,8 +832,7 @@ class AnalysesView(ListingView):
         self._folder_item_conditions(obj, item)
         # Fill maximum holding time warnings
         self._folder_item_holding_time(obj, item)
-        # Fill consumables used
-        self._folder_item_consumables(obj, item)
+
         return item
 
     def folderitems(self):
@@ -1076,10 +924,6 @@ class AnalysesView(ListingView):
                      or "Instrument" in columns_order)
             )
 
-        show_sub_instruments_column = self.is_sub_instruments_column_required(items)
-        if "SubInstruments" in self.columns:
-            self.columns["SubInstruments"]["toggle"] = show_sub_instruments_column
-
         # show unit selection column only if required
         show_unit_column = (
             self.is_unit_selection_column_required(items)
@@ -1091,39 +935,6 @@ class AnalysesView(ListingView):
                      or "Unit" in columns_order)
             )
 
-        for item in items:
-            for field in self.consumable_columns:
-                if field not in item:
-                    item[field] = ""
-
-            # Graceful handling of new item key introduced in
-            # https://github.com/senaite/senaite.app.listing/pull/81
-            item["help"] = item.get("help", {})
-
-        # XXX order the list of interim columns
-        consumable_keys = self.consumable_columns.keys()
-        # add InterimFields keys to columns
-        for col_id in consumable_keys:
-            if col_id not in self.columns:
-                self.columns[col_id] = {
-                    "title": self.consumable_columns[col_id],
-                    "input_width": "6",
-                    #"input_class": "ajax_calculate numeric",
-                    "sortable": False,
-                    "toggle": True,
-                    "ajax": True,
-                }
-        if self.allow_edit:
-            new_states = []
-            for state in self.review_states:
-                pos = self.calculate_consumable_columns_position(state)
-                for col_id in consumable_keys:
-                    if col_id not in state["columns"]:
-                        state["columns"].insert(pos, col_id)
-                new_states.append(state)
-            self.review_states = new_states
-            # Allow selecting individual analyses
-            self.show_select_column = True
         return items
 
     def render_unit(self, unit, css_class=None):
@@ -1452,14 +1263,6 @@ class AnalysesView(ListingView):
         # return the values as a single string
         values = filter(None, values)
         return "<br/>".join(values)
-    
-    def get_formatted_consumable(self, consumable):
-        raw_value = consumable.get("value")
-        is_uid = api.is_uid(raw_value)
-        if not is_uid:
-            return raw_value
-        obj = api.get_object_by_uid(raw_value)
-        return api.get_title(obj) or raw_value
 
     def _folder_item_unit(self, analysis_brain, item):
         """Fills the analysis' unit to the item passed in.
@@ -1514,9 +1317,6 @@ class AnalysesView(ListingView):
         # update the available instruments
         inst_vocab = self.get_instruments_vocabulary(obj, method=method)
         item["choices"]["Instrument"] = inst_vocab
-        
-        sub_inst_vocab = self.get_sub_instruments_vocabulary(obj, method=method)
-        item["choices"]["SubInstruments"] = sub_inst_vocab
 
         return item
 
@@ -1548,41 +1348,6 @@ class AnalysesView(ListingView):
         else:
             item["Instrument"] = _("Manual")
 
-    def _folder_item_sub_instruments(self, analysis_brain, item):
-        """Fills the analysis' sub instrument to the item passed in.
-
-        :param analysis_brain: Brain that represents an analysis
-        :param item: analysis' dictionary counterpart that represents a row
-        """
-
-        item["SubInstruments"] = ""
-
-        # SubInstruments can be assigned to this analysis
-        is_editable = self.is_analysis_edition_allowed(analysis_brain)
-        subinstruments = self.get_sub_instruments(analysis_brain)
-
-        if is_editable:
-            # Edition allowed
-            voc = self.get_sub_instruments_vocabulary(analysis_brain)
-            item["SubInstruments"] = [i.UID() for i in subinstruments]
-            item["choices"]["SubInstruments"] = voc
-            item["allow_edit"].append("SubInstruments")
-
-        elif subinstruments:
-            subinstruments_names = []
-            subinstruments_links = []
-            for subinstrument in self.get_sub_instruments(analysis_brain):
-                link = get_link_for(subinstrument, tabindex="-1")
-                subinstruments_links.append(link)
-                name = api.get_title(subinstrument)
-                subinstruments_names.append(name)
-            if subinstruments_links:
-                item["replace"]["SubInstruments"] = "<br/>".join(subinstruments_links)
-                item["SubInstruments"] = ", ".join(subinstruments_names)
-
-        else:
-            item["SubInstruments"] = _("Manual")
-            
     def _on_unit_change(self, uid=None, value=None, item=None, **kw):
         """ updates the rendered unit on selection of unit.
         """
@@ -2086,58 +1851,6 @@ class AnalysesView(ListingView):
             self._append_html_element(item, "ResultCaptureDate", icon)
             return
 
-    def _folder_item_consumables(self, analysis_brain, item):
-        analysis_obj = self.get_object(analysis_brain)
-        consumables_fields = self.get_consumables(analysis_brain) or list()
-        is_editable = self.is_analysis_edition_allowed(analysis_brain)
-        # Copy to prevent to avoid persistent changes
-        
-        consumables_fields = deepcopy(consumables_fields)
-        for consumable_field in consumables_fields:
-            consumable_keyword = consumable_field.get("keyword", "")
-            if not consumable_keyword:
-                logger.error("Not valid consumable keyword for '%s'", consumable_field)
-                continue
-            
-            consumable_brain = api.get_brain_by_uid(consumable_keyword)
-            if not consumable_brain:
-                logger.error("Not valid consumable brain for '%s'", consumable_keyword)
-                continue
-            consumable_title = api.get_title(consumable_brain)
-            
-            if not consumable_title:
-                logger.error("Not valid consumable title for '%s'", consumable_field)
-                continue
-            
-            self.consumable_columns[consumable_keyword] = consumable_title
-            consumable_value = consumable_field.get("value", "")
-            consumable_allow_empty = consumable_field.get("allow_empty") == "on"
-
-            # Get the consumable formatted value
-            consumable_formatted = self.get_formatted_consumable(consumable_field)
-            consumable_field["formatted_value"] = consumable_formatted
-
-            # Update the item with the consumable
-            item[consumable_keyword] = consumable_value
-
-            if is_editable:
-                if self.has_permission(
-                        FieldEditAnalysisResult, analysis_brain):
-                    item["allow_edit"].append(consumable_keyword)
-
-                voc = self.get_consumables_vocabulary(analysis_brain, consumable_keyword)
-                empty = [{"ResultValue": "", "ResultText": ""}]
-                voc = empty + voc
-                    
-                item.setdefault("choices", {})[consumable_keyword] = voc
-                item[consumable_keyword] = consumable_value
-            
-            elif consumable_value:
-                item[consumable_keyword] = consumable_formatted
-            
-            else:
-                item[consumable_keyword] = "-"
-        
     def is_method_required(self, analysis):
         """Returns whether the render of the selection list with methods is
         required for the method passed-in, even if only option "None" is
@@ -2173,25 +1886,6 @@ class AnalysesView(ListingView):
         # selection list are always a subset of the allowed instruments when
         # a method is selected
         return len(instruments) > 0
-    
-    def is_sub_instruments_required(self, analysis):
-        """Returns whether the render of the selection list with sub instruments is
-        required for the analysis passed-in, even if only option "None" is
-        displayed for selection.
-        :param analysis: Brain or object that represents an analysis
-        """
-
-        # Always return true if the analysis has an instrument assigned
-        analysis = self.get_object(analysis)
-        if analysis.getRawSubInstruments():
-            return True
-
-        subinstruments = analysis.getRawAllowedSubInstruments()
-        # There is no need to check for the instruments of the method assigned
-        # to # the analysis (if any), because the instruments rendered in the
-        # selection list are always a subset of the allowed instruments when
-        # a method is selected
-        return len(subinstruments) > 0
 
     def is_unit_choices_required(self, analysis):
         """Returns whether the render of the unit choice selection list is
@@ -2225,17 +1919,6 @@ class AnalysesView(ListingView):
             if self.is_instrument_required(obj):
                 return True
         return False
-    
-    def is_sub_instruments_column_required(self, items):
-        """Returns whether the sub instrument column has to be rendered or not.
-        Returns True if at least one of the analyses from the listing requires
-        the list for sub instrument selection to be rendered
-        """
-        for item in items:
-            obj = item.get("obj")
-            if self.is_sub_instruments_required(obj):
-                return True
-        return False
 
     def is_unit_selection_column_required(self, items):
         """Returns whether the unit column has to be rendered or not.
@@ -2247,12 +1930,3 @@ class AnalysesView(ListingView):
             if self.is_unit_choices_required(obj):
                 return True
         return False
-    
-    def get_consumables(self, analysis_brain):
-        """Returns the consumables assigned to the analysis passed in, if any
-
-        :param analysis_brain: Brain that represents an analysis
-        :return: consumables object or None
-        """
-        obj = self.get_object(analysis_brain)
-        return obj.getConsumablesFields()
