@@ -100,6 +100,16 @@ class ISelectOtherField(INativeString):
     """
 
 
+class IInterimFields(IList):
+    """Senaite Interims field field
+    """
+
+
 class IMultiUploadField(IList):
     """Senaite Multi Upload field
+    """
+
+
+class IRemarksField(IList):
+    """An append-only TextField which saves information about each edit
     """
